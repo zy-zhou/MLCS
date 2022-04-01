@@ -11,7 +11,7 @@
 * py-rouge 1.1
 
 ## Data
-Original data we used is from https://github.com/xing-hu/TL-CodeSum and https://github.com/EdinburghNLP/code-docstring-corpus. This repository contains data processing script for the former. Please put the raw data into the **data/original** folder. The code to shuffle and remove the duplicate examples is not included so you have to manually do this if required.
+The original data we used is from https://github.com/xing-hu/TL-CodeSum and https://github.com/EdinburghNLP/code-docstring-corpus. This repository contains data processing script for the former. Please put the raw data into the **data/original** folder. The code to shuffle and remove the duplicate examples is not included so you have to manually do this if required.
 
 ## Preprocessing
 * Run `python Data.py` to filter & tokenize the codes and comments. Comments with less than 2 tokens after tokenization will be marked for discard.
