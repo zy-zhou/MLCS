@@ -255,9 +255,9 @@ def load_data(prefix='train', mode='std', batch_size=batch_size,
     else:
         kwargs.update(dict(batch_size=batch_size, device=device, shuffle=False, sort=False))
     nl_field = torch.load('data/preprocessed/nl_field.pkl')
-    texts = load('data//preprocessed/' + prefix + '.nl.json', is_json=True)
+    texts = load('data/preprocessed/' + prefix + '.nl.json', is_json=True)
     
-    code_field = torch.load('data//preprocessed/code_field.pkl')
+    code_field = torch.load('data/preprocessed/code_field.pkl')
     codes = load('data/preprocessed/' + prefix + '.code.json', is_json=True)
     
     if mode == 'meta':
