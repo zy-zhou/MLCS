@@ -32,6 +32,34 @@ def leven_sim(queries, corpus, workers=1):
             sims.append(_leven_sim(query, corpus_))
     return sims
 
+def sims_topk(sims, k=10, include_self=False):
+    if not include_self:
+        topk, topk_idx = sims.topk(k, 1)
+        return topk, topk_idx
+    else:
+        topk, topk_idx = sims.topk(k + 1, 1)
+        return topk[:,1:], topk_idx[:,1:]
+
+def cosine_nns(query_vecs, corpus_vecs, k, include_self, batch_size=16):
+    assert type(corpus_vecs) is torch.Tensor
+    size = query_vecs.shape[0], corpus_vecs.shape[0], corpus_vecs.shape[1]
+    query_vecs = query_vecs.unsqueeze(1).expand(*size)
+    corpus_vecs = corpus_vecs.unsqueeze(0).expand(*size)
+    # batch_size * corpus_size * n_dim
+    query_batches = DataGenerator.batch(query_vecs, batch_size)
+    corpus_batches = DataGenerator.batch(corpus_vecs, batch_size)
+    topk, topk_idx = [], []
+    for query_batch, corpus_batch in tqdm(zip(query_batches, corpus_batches),
+                                          total=int(np.ceil(size[0] / batch_size)),
+                                          desc='Computing similarities...'):
+        sims = torch.cosine_similarity(query_batch, corpus_batch, -1)
+        values, indices = sims_topk(sims, k=k, include_self=include_self)
+        topk.append(values.to('cpu'))
+        topk_idx.append(indices.to('cpu'))
+    topk = torch.cat(topk)
+    topk_idx = torch.cat(topk_idx)
+    return topk, topk_idx
+
 class Doc2Vec(object):
     def __init__(self, corpus, embed_dim=128, model='fasttext', **kwargs):
         if model == 'fasttext':
@@ -49,34 +77,6 @@ class Doc2Vec(object):
                 vec = np.stack(vecs).max(0)
             doc_vecs.append(vec)
         return torch.from_numpy(np.stack(doc_vecs))
-    
-    @classmethod
-    def cosine(cls, tgt_vecs, src_vecs, batch_size=32):
-        assert type(src_vecs) is torch.Tensor
-        size = tgt_vecs.shape[0], src_vecs.shape[0], src_vecs.shape[1]
-        tgt_vecs = tgt_vecs.to(torch.float32).unsqueeze(1).expand(*size)
-        src_vecs = src_vecs.to(torch.float32).unsqueeze(0).expand(*size) # batch_size * num_tgt * vec_dim
-        
-        tgt_batches = DataGenerator.batch(tgt_vecs, batch_size)
-        src_batches = DataGenerator.batch(src_vecs, batch_size)
-        sims = []
-        for tgt_vec, src_vec in tqdm(zip(tgt_batches, src_batches),
-                                     total=int(np.ceil(size[0] / batch_size)),
-                                     desc='Computing similarities...'):
-            sim = torch.cosine_similarity(tgt_vec, src_vec, -1)
-            sims.append(sim.to('cpu'))
-        sims = torch.cat(sims)
-        return sims
-    
-    @classmethod
-    def get_nearest(cls, sims, k=10, include_self=False):
-        assert type(sims) is torch.Tensor
-        if not include_self:
-            topk, topk_idx = sims.topk(k, 1)
-            return topk, topk_idx
-        
-        topk, topk_idx = sims.topk(k + 1, 1)
-        return topk[:,1:], topk_idx[:,1:]
     
 class SparseDoc2Vec(object):
     def __init__(self, corpus, model='tfidf', lsi=False, num_topics=500, **kwargs):
@@ -99,14 +99,11 @@ class SparseDoc2Vec(object):
             docs = self.lsi_model[docs]
         return docs
 
-    def cosine(self, queries, corpus, sparse=False, lsi=False):
+    def sparse_cosine(self, queries, corpus):
         ''' Expecting tokenized raw inputs '''
-        corpus = self.get_vecs(corpus, lsi)
-        queries = self.get_vecs(queries, lsi)
-        if sparse:
-            index = SparseMatrixSimilarity(corpus, num_features=len(self.dictionary))
-        else:
-            index = MatrixSimilarity(corpus, num_features=len(self.dictionary))
+        corpus = self.get_vecs(corpus, lsi=False)
+        queries = self.get_vecs(queries, lsi=False)
+        index = SparseMatrixSimilarity(corpus, num_features=len(self.dictionary))
         return torch.from_numpy(index[queries])
 
 class RNNDoc2Vec(object):
@@ -164,8 +161,7 @@ if __name__ == '__main__':
         else:
             query_vecs = torch.load('data/retrieved/' + pre + '.rnn.vecs.pt').to(device)
     
-        sims = Doc2Vec.cosine(query_vecs, corpus_vecs, batch_size=64)
-        topk, topk_idx = Doc2Vec.get_nearest(sims, k=20, include_self='train' in pre)
+        topk, topk_idx = cosine_nns(query_vecs, corpus_vecs, k=10, include_self='train' in pre)
         torch.save(dict(topk=topk, idx=topk_idx), 'data/retrieved/'+ pre + '.rnn.topk.pt')
     
     corpus = load('data/preprocessed/train.code.json', is_json=True)
